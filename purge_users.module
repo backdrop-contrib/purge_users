@@ -248,21 +248,27 @@ function purge_users_cron_queue_info() {
  *   User account.
  */
 function purge_users_worker($data) {
-  $user_load = user_load($data);
-  // Log an entry.
-  watchdog('Purge users', 'User %user purged.', array('%user' => $user_load->name), WATCHDOG_INFO);
+  $account = user_load($data);
+  $method = variable_get('purge_user_cancel_method', 'user_cancel_reassign');
+  // Modules use hook_user_delete() to respond to deletion.
+  if ($method != 'user_cancel_delete') {
+    // Allow modules to add further sets to this batch.
+    module_invoke_all('user_cancel', array(), $account, $method);
+  }
+  // Log an entry to watchdog.
+  watchdog('Purge users', 'User %user purged.', array('%user' => $account->name), WATCHDOG_NOTICE);
   // Do heavy lifting here. Delete users and send an notification email.
   if (variable_get('purge_users_send_email_notification', '') == 1) {
-    purge_users_send_notification($user_load);
+    purge_users_send_notification($account);
   }
-  // Call user delete function.
-  user_delete($data);
+  // Perform user deletion operation.
+  user_delete($account->uid);
 }
 
 /**
  * Mass cancel user account confirmation form.
  */
-function purge_users_multiple_cancel_confirm($form, &$form_state, $uids) {
+function purge_users_multiple_cancel_confirm($form, &$form_state, $uids, $cancel_method) {
   $form['accounts'] = array(
     '#prefix' => '<ul>',
     '#suffix' => '</ul>',
@@ -281,6 +287,10 @@ function purge_users_multiple_cancel_confirm($form, &$form_state, $uids) {
       '#suffix' => check_plain($account->name) . " &lt;" . $account->mail . "&gt; </li>\n",
     );
   }
+  $form['purge_user_cancel_method'] = array(
+    '#type' => 'hidden',
+    '#value' => $cancel_method,
+  );
   $form['#submit'][] = 'purge_users_multiple_cancel_confirm_submit';
   return confirm_form($form,
     t('Are you sure you want to cancel these user accounts?'),
@@ -310,8 +320,13 @@ function purge_users_multiple_cancel_confirm_submit($form, &$form_state) {
       if ($uid <= 1) {
         continue;
       }
-      $user = user_load($uid);
-      $batch['operations'][] = array('purge_users_batch_process', array($user));
+      $method = $form_state['values']['purge_user_cancel_method'];
+
+      $account = user_load($uid);
+      $batch['operations'][] = array(
+        'purge_users_batch_process',
+        array($account, $method)
+      );
     }
     // Batch set.
     batch_set($batch);
@@ -323,18 +338,25 @@ function purge_users_multiple_cancel_confirm_submit($form, &$form_state) {
 /**
  * The batch processor.
  */
-function purge_users_batch_process($account, &$context) {
+function purge_users_batch_process($account, $method, &$context) {
   if (!isset($context['results']['purged'])) {
     $context['results']['purged'] = 0;
   }
+
+  // Modules use hook_user_delete() to respond to deletion.
+  if ($method != 'user_cancel_delete') {
+    // Allow modules to add further sets to this batch.
+    module_invoke_all('user_cancel', array(), $account, $method);
+  }
   // Log an entry to watchdog.
-  watchdog('Purge users', 'User %user purged.', array('%user' => $account->name), WATCHDOG_INFO);
+  watchdog('Purge users', 'User %user purged.', array('%user' => $account->name), WATCHDOG_NOTICE);
   // Do heavy lifting here. Delete users and send an notification email.
   if (variable_get('purge_users_send_email_notification', '') == 1) {
     purge_users_send_notification($account);
   }
   // Perform user deletion operation.
   user_delete($account->uid);
+
   // Display a progress message...
   $context['message'] = "Now processing $account->name ...";
   // Update our progress information.

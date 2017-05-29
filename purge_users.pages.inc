@@ -18,7 +18,8 @@ function purge_users_config_form($form, &$form_state) {
   if (isset($form_state['storage']['confirm'])) {
     $uids = purge_users_get_users_list($form_state);
     if (!empty($uids)) {
-      return purge_users_multiple_cancel_confirm($form, $form_state, $uids);
+      $cancel_method = $form_state['values']['purge_user_cancel_method'];
+      return purge_users_multiple_cancel_confirm($form, $form_state, $uids, $cancel_method);
     }
     else {
       drupal_set_message(t('No user account found in the system to purge.'));
@@ -139,6 +140,16 @@ function purge_users_config_form($form, &$form_state) {
     '#options' => $roles_array,
     '#default_value' => variable_get('purge_users_roles', array()),
   );
+  module_load_include('inc', 'user', 'user.pages');
+  $form['purge_user_cancel_method'] = array(
+    '#type' => 'radios',
+    '#title' => t('When cancelling these accounts'),
+    '#options' => array(
+      'user_cancel_reassign' => t('Delete the account and make its content belong to the %anonymous-name user.', array('%anonymous-name' => variable_get('anonymous', t('Anonymous')))),
+      'user_cancel_delete' => t('Delete the account and its content.'),
+    ),
+    '#default_value' => variable_get('purge_user_cancel_method', 'user_cancel_reassign'),
+  );
 
   $form['purge_users_purge_on_cron'] = array(
     '#type' => 'checkbox',
@@ -183,6 +194,7 @@ function purge_users_config_form($form, &$form_state) {
   $form['purge_users_now'] = array(
     '#type' => 'submit',
     '#value' => t('Purge users now'),
+    '#name' => 'purge_users_now',
     '#attributes' => array('class' => array('purge-now')),
     '#submit' => array('purge_users_now_form_submit'),
   );
@@ -249,7 +261,7 @@ function purge_users_config_form_validate($form, &$form_state) {
  */
 function purge_users_now_form_submit($form, &$form_state) {
   // Call purge user function to perform operation.
-  if ($form_state['values']['op'] == 'Purge users now') {
+  if ($form_state['triggering_element']['#name'] == 'purge_users_now') {
     variable_set('purge_users_send_email_notification', $form_state['values']['purge_users_send_email_notification']);
     $form_state['storage']['confirm'] = TRUE;
     $form_state['storage']['original_form'] = $form_state['values'];
