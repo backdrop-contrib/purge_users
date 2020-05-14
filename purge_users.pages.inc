@@ -18,7 +18,7 @@ function purge_users_config_form($form, &$form_state) {
   if (isset($form_state['storage']['confirm'])) {
     $uids = purge_users_get_users_list($form_state);
     if (!empty($uids)) {
-      $cancel_method = $form_state['values']['purge_user_cancel_method'];
+      $cancel_method = $form_state['values']['purge_users_cancel_method'];
       return purge_users_multiple_cancel_confirm($form, $form_state, $uids, $cancel_method);
     }
     else {
@@ -175,19 +175,19 @@ function purge_users_config_form($form, &$form_state) {
     '#default_value' => variable_get('purge_users_roles', array()),
   );
   module_load_include('inc', 'user', 'user.pages');
-  $form['purge_user_cancel_method'] = array(
+  $form['purge_users_cancel_method'] = array(
     '#type' => 'radios',
     '#title' => t('When cancelling these accounts'),
     '#options' => array(
       'user_cancel_reassign' => t('Delete the account and make its content belong to the %anonymous-name user.', array('%anonymous-name' => variable_get('anonymous', t('Anonymous')))),
       'user_cancel_delete' => t('Delete the account and its content.'),
     ),
-    '#default_value' => variable_get('purge_user_cancel_method', 'user_cancel_reassign'),
+    '#default_value' => variable_get('purge_users_cancel_method', 'user_cancel_reassign'),
   );
 
   $form['purge_users_purge_on_cron'] = array(
     '#type' => 'checkbox',
-    '#title' => t('Purge users only on cron run'),
+    '#title' => t('Purge on cron'),
     '#default_value' => variable_get('purge_users_purge_on_cron', ''),
   );
 
@@ -267,18 +267,18 @@ function purge_users_config_form_validate($form, &$form_state) {
     if ($block_value != '' && !is_numeric($block_value)) {
       form_set_error('purge_users_user_blocked_value', t('Interval must be a number.'));
     }
-    // Validate to set purge period more than 10 days.
-    if ($never_login_period == 'days' && !empty($never_login_value) && $never_login_value <= 10) {
-      form_set_error('purge_users_user_never_lastlogin_value', t('Purge period should be more than 10 days.'));
+    // Validate to set purge period more than 1 days.
+    if ($never_login_period == 'days' && !empty($never_login_value) && $never_login_value < 1) {
+      form_set_error('purge_users_user_never_lastlogin_value', t('Purge period should not be less than 1 day.'));
     }
-    if ($login_period == 'days' && !empty($login_value) && $login_value <= 10) {
-      form_set_error('purge_users_user_lastlogin_value', t('Purge period should be more than 10 days.'));
+    if ($login_period == 'days' && !empty($login_value) && $login_value < 1) {
+      form_set_error('purge_users_user_lastlogin_value', t('Purge period should not be less than 1 day.'));
     }
-    if ($inactive_period == 'days' && !empty($inactive_value) && $inactive_value <= 10) {
-      form_set_error('purge_users_user_inactive_value', t('Purge period should be more than 10 days.'));
+    if ($inactive_period == 'days' && !empty($inactive_value) && $inactive_value < 1) {
+      form_set_error('purge_users_user_inactive_value', t('Purge period should not be less than 1 day.'));
     }
-    if ($block_period == 'days' && !empty($block_value) && $block_value <= 10) {
-      form_set_error('purge_users_user_blocked_value', t('Purge period should be more than 10 days.'));
+    if ($block_period == 'days' && !empty($block_value) && $block_value < 1) {
+      form_set_error('purge_users_user_blocked_value', t('Purge period should not be less than 1 day.'));
     }
     // Make sure one of the fieldset is checked.
     if ($never_enable_loggedin == 0 && $enable_loggedin == 0 && $enable_inactive == 0 && $enable_blocked == 0) {

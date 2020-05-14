@@ -298,7 +298,7 @@ function purge_users_cron_queue_info() {
  */
 function purge_users_worker($data) {
   $account = user_load($data);
-  $method = variable_get('purge_user_cancel_method', 'user_cancel_reassign');
+  $method = variable_get('purge_users_cancel_method', 'user_cancel_reassign');
   // Modules use hook_user_delete() to respond to deletion.
   if ($method != 'user_cancel_delete') {
     // Allow modules to add further sets to this batch.
@@ -336,7 +336,7 @@ function purge_users_multiple_cancel_confirm($form, &$form_state, $uids, $cancel
       '#suffix' => check_plain($account->name) . " &lt;" . $account->mail . "&gt; </li>\n",
     );
   }
-  $form['purge_user_cancel_method'] = array(
+  $form['purge_users_cancel_method'] = array(
     '#type' => 'hidden',
     '#value' => $cancel_method,
   );
@@ -369,12 +369,12 @@ function purge_users_multiple_cancel_confirm_submit($form, &$form_state) {
       if ($uid <= 1) {
         continue;
       }
-      $method = $form_state['values']['purge_user_cancel_method'];
+      $method = $form_state['values']['purge_users_cancel_method'];
 
       $account = user_load($uid);
       $batch['operations'][] = array(
         'purge_users_batch_process',
-        array($account, $method)
+        array($account, $method),
       );
     }
     // Batch set.
