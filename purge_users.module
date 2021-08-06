@@ -53,22 +53,22 @@ function purge_users_cron() {
     $blocked_users = array();
     // Get users who have never logged in at all.
     if ($never_enable_loggedin == 1) {
-      $never_loggedin_users = purge_users_never_loggedin_user_ids($param, $user_roles, $status, $never_enable_loggedin);
+      $never_loggedin_users = purge_users_never_loggedin_user_ids($param, $user_roles);
     }
     // Get users who have not logged in at all.
     if ($enable_loggedin == 1) {
-      $not_loggedin_users = purge_users_not_loggedin_user_ids($param, $user_roles, $status, $enable_loggedin);
+      $not_loggedin_users = purge_users_not_loggedin_user_ids($param, $user_roles);
     }
     // Get users who didn't activate their account.
     if ($enable_inactive == 1) {
-      $inactive_users = purge_users_inactive_user_ids($param, $user_roles, $status, $enable_inactive);
+      $inactive_users = purge_users_inactive_user_ids($param, $user_roles);
     }
     // Get the users who are blocked.
     if ($enable_blocked == 1) {
-      $blocked_users = purge_users_blocked_user_ids($param, $user_roles, $status, $enable_blocked);
+      $blocked_users = purge_users_blocked_user_ids($param, $user_roles);
     }
     // Merge results to create an array of user ids to purge.
-    $result = array_merge($never_loggedin_users, $not_loggedin_users, $inactive_users, $blocked_users);
+    $result = array_merge($never_loggedin_users, $not_loggedin_users);
     $result = array_unique($result);
     // Add items to queue.
     $queue = DrupalQueue::get('purge_users');
