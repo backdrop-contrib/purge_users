@@ -15,7 +15,7 @@ function purge_users_menu() {
     'description' => 'Configure purge users.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('purge_users_config_form'),
-    'access arguments' => array('administer user'),
+    'access arguments' => array('administer users'),
     'type' => MENU_LOCAL_TASK,
     'file' => 'purge_users.pages.inc',
     'weight' => 3,
