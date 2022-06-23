@@ -18,6 +18,10 @@ function purge_users_config_form($form, &$form_state) {
   // Confirmation form.
   if (isset($form_state['storage']['confirm'])) {
     $uids = purge_users_get_users_list($form_state);
+    // Prevent user 1 from being cancelled.
+    if (($key = array_search(1, $uids)) !== false) {
+      unset($uids[$key]);
+    }
     if (!empty($uids)) {
       $cancel_method = $form_state['values']['purge_users_cancel_method'];
       return purge_users_multiple_cancel_confirm($form, $form_state, $uids, $cancel_method);

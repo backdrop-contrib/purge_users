@@ -272,24 +272,24 @@ function purge_users_worker($data) {
  * Mass cancel user account confirmation form.
  */
 function purge_users_multiple_cancel_confirm($form, &$form_state, $uids, $cancel_method) {
-  $form['accounts'] = array(
-    '#prefix' => '<ul>',
-    '#suffix' => '</ul>',
-    '#tree' => TRUE,
-  );
-  $accounts = user_load_multiple($uids);
-  foreach ($accounts as $uid => $account) {
-    // Prevent user 1 from being canceled.
-    if ($uid <= 1) {
-      continue;
-    }
-    $form['accounts'][$uid] = array(
-      '#type' => 'hidden',
-      '#value' => $uid,
-      '#prefix' => '<li>',
-      '#suffix' => check_plain($account->name) . " &lt;" . $account->mail . "&gt; </li>\n",
-    );
+
+  // The list of user IDs could be really huge (too large to pass as a form
+  // value), so we'll store it temporarily in the db to be fetched upon
+  // confirmation submission.
+  state_set('purge_users_uids', $uids);
+
+  $uids_to_report = array_slice($uids, 0, 25);
+  $accounts_to_report = user_load_multiple($uids_to_report);
+  foreach ($accounts_to_report as $uid => $account) {
+    $items[] = check_plain($account->name) . ' &lt;' . $account->mail . '&gt;';
   }
+  if (count($uids_to_report) < count($uids)) {
+    $items[] = t('...and @num more.', array('@num' => count($uids) - count($uids_to_report)));
+  }
+  $form['accounts'] = array(
+    '#markup' => theme('item_list', array('items' => $items)),
+  );
+
   $form['purge_users_cancel_method'] = array(
     '#type' => 'hidden',
     '#value' => $cancel_method,
@@ -318,14 +318,15 @@ function purge_users_multiple_cancel_confirm_submit($form, &$form_state) {
       'progress_message' => t('Processed @current out of @total.'),
       'error_message' => t('Delete user accounts operation has encountered an error.'),
     );
-    foreach ($form_state['values']['accounts'] as $uid => $value) {
-      // Prevent programmatic form submissions from cancelling user 1.
-      if ($uid <= 1) {
-        continue;
-      }
-      $method = $form_state['values']['purge_users_cancel_method'];
 
-      $account = user_load($uid);
+    // Get the stored list of uids to purge from state (then clear state,
+    // because we no longer need that list).
+    $uids = state_get('purge_users_uids');
+    state_del('purge_users_uids');
+    $accounts = user_load_multiple($uids);
+
+    foreach ($accounts as $uid => $account) {
+      $method = $form_state['values']['purge_users_cancel_method'];
       $batch['operations'][] = array(
         'purge_users_batch_process',
         array($account, $method),
@@ -358,8 +359,7 @@ function purge_users_batch_process($account, $method, &$context) {
     purge_users_send_notification($account);
   }
   // Perform user deletion operation.
-// TEMPORARY
-//  user_delete($account->uid);
+  user_delete($account->uid);
 
   // Display a progress message...
   $context['message'] = "Now processing $account->name ...";
@@ -374,7 +374,6 @@ function purge_users_batch_completed($success, $results, $operations) {
   if ($success) {
     $purged = isset($results['purged']) ? $results['purged'] : 0;
     $message = format_plural($purged, '@count user account has been purged.', '@count user accounts have been purged.', array('@count' => $purged));
-
     backdrop_set_message($message);
   }
   else {
