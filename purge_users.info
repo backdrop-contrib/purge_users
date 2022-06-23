@@ -1,4 +1,8 @@
-name = Purge Users
-description = Purge inactive users after a set interval.
-core = 7.x
-configure = admin/people/purge-rule
+name = Auto Purge Users
+description = Purge inactive user accounts after a set interval.
+backdrop = 1.x
+type = module
+package = "User Management"
+tags[] = "User Management"
+
+configure = admin/config/people/purge-rule

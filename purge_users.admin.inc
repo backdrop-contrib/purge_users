@@ -1,18 +1,19 @@
 <?php
-
 /**
  * @file
- * Purge users module config form file.
+ * Auto Purge Users module config form file.
  */
 
 /**
  * Menu callback function.
  */
 function purge_users_config_form($form, &$form_state) {
+  $config = config('purge_users.settings');
   $form = array();
+  $form['#config'] = 'purge_users.settings';
 
   // Add stylesheet.
-  drupal_add_css(drupal_get_path('module', 'purge_users') . "/css/purge_users.css");
+  backdrop_add_css(backdrop_get_path('module', 'purge_users') . "/css/purge_users.css");
 
   // Confirmation form.
   if (isset($form_state['storage']['confirm'])) {
@@ -22,214 +23,240 @@ function purge_users_config_form($form, &$form_state) {
       return purge_users_multiple_cancel_confirm($form, $form_state, $uids, $cancel_method);
     }
     else {
-      drupal_set_message(t('No user account found in the system to purge.'));
+      backdrop_set_message(t('No user account found in the system to purge.'));
     }
   }
 
-  // Fetch user roles.
-  $user_roles = user_roles(TRUE);
-  foreach ($user_roles as $rid => $roles) {
-    $roles_array[$rid] = ucfirst($roles);
-  }
+  // Fetch user roles and their names.
+  $user_roles = user_roles();
+  $authenticated_name = $user_roles['authenticated'];
+  $anonymous_name = $user_roles['anonymous'];
+  unset($user_roles['anonymous']);
 
-  $notification_text = t("Dear User, \n\nYour account has been deleted due the website’s policy to automatically remove users who match certain criteria. If you have concerns regarding the deletion, please talk to the administrator of the website. \n\n Thank you");
+  $period_options = array(
+    'days' => t('Days'),
+    'month' => t('Months'),
+    'year' => t('Year'),
+  );
+
+  // Never logged in
 
   $form['never_loggedin_user'] = array(
     '#type' => 'fieldset',
-    '#title' => t('Purge users who have never logged in for'),
-    '#collapsible' => FALSE,
-    '#collapsed' => FALSE,
+    '#title' => t('Never logged in'),
+  );
+  $form['never_loggedin_user']['purge_users_enabled_never_loggedin_users'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Purge user accounts that have never logged in but have existed for'),
+    '#default_value' => $config->get('purge_users_enabled_never_loggedin_users'),
   );
   $form['never_loggedin_user']['purge_users_user_never_lastlogin_value'] = array(
     '#type' => 'textfield',
     '#title' => t('Interval'),
-    '#default_value' => variable_get('purge_users_user_never_lastlogin_value', ''),
+    '#default_value' => $config->get('purge_users_user_never_lastlogin_value'),
     '#prefix' => '<div class="purge-interval-selector clearfix">',
     '#attributes' => array('class' => array('purge-value')),
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_enabled_never_loggedin_users"]' => array('checked' => TRUE),
+      ),
+    ),
   );
-
   $form['never_loggedin_user']['purge_users_user_never_lastlogin_period'] = array(
     '#title' => t('Period'),
     '#type' => 'select',
-    '#options' => array(
-      'days' => t('Days'),
-      'month' => t('Months'),
-      'year' => t('Year'),
-    ),
-    '#default_value' => variable_get('purge_users_user_never_lastlogin_period', ''),
+    '#options' => $period_options,
+    '#default_value' => $config->get('purge_users_user_never_lastlogin_period'),
     '#attributes' => array('class' => array('purge-period')),
-    '#suffix' => '</div>',
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_enabled_never_loggedin_users"]' => array('checked' => TRUE),
+      ),
+    ),
   );
 
-  $form['never_loggedin_user']['purge_users_enabled_never_loggedin_users'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Enabled'),
-    '#default_value' => variable_get('purge_users_enabled_never_loggedin_users', ''),
-  );
+  // Not recently logged in
 
   $form['not_loggedin_user'] = array(
     '#type' => 'fieldset',
-    '#title' => t('Purge users who have not logged in for'),
-    '#collapsible' => FALSE,
-    '#collapsed' => FALSE,
+    '#title' => t('Not recently logged in'),
+  );
+  $form['not_loggedin_user']['purge_users_enabled_loggedin_users'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Purge user accounts that logged in at least once but have not logged in for'),
+    '#default_value' => $config->get('purge_users_enabled_loggedin_users'),
   );
   $form['not_loggedin_user']['purge_users_user_lastlogin_value'] = array(
     '#type' => 'textfield',
     '#title' => t('Interval'),
-    '#default_value' => variable_get('purge_users_user_lastlogin_value', ''),
+    '#default_value' => $config->get('purge_users_user_lastlogin_value'),
     '#prefix' => '<div class="purge-interval-selector clearfix">',
     '#attributes' => array('class' => array('purge-value')),
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_enabled_loggedin_users"]' => array('checked' => TRUE),
+      ),
+    ),
   );
-
   $form['not_loggedin_user']['purge_users_user_lastlogin_period'] = array(
     '#title' => t('Period'),
     '#type' => 'select',
-    '#options' => array(
-      'days' => t('Days'),
-      'month' => t('Months'),
-      'year' => t('Year'),
-    ),
-    '#default_value' => variable_get('purge_users_user_lastlogin_period', ''),
+    '#options' => $period_options,
+    '#default_value' => $config->get('purge_users_user_lastlogin_period'),
     '#attributes' => array('class' => array('purge-period')),
-    '#suffix' => '</div>',
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_enabled_loggedin_users"]' => array('checked' => TRUE),
+      ),
+    ),
   );
 
-  $form['not_loggedin_user']['purge_users_enabled_loggedin_users'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Enabled'),
-    '#default_value' => variable_get('purge_users_enabled_loggedin_users', ''),
-  );
+  // Inactive
 
   $form['not_active_user'] = array(
     '#type' => 'fieldset',
-    '#title' => t('Purge users whose account has not been activated for'),
-    '#collapsible' => FALSE,
-    '#collapsed' => FALSE,
+    '#title' => t('Not activated'),
+  );
+  $form['not_active_user']['purge_users_enabled_inactive_users'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Purge user accounts whose account has not been activated (i.e., currently blocked, never logged in) for'),
+    '#default_value' => $config->get('purge_users_enabled_inactive_users'),
   );
   $form['not_active_user']['purge_users_user_inactive_value'] = array(
     '#type' => 'textfield',
     '#title' => t('Interval'),
-    '#default_value' => variable_get('purge_users_user_inactive_value', ''),
+    '#default_value' => $config->get('purge_users_user_inactive_value'),
     '#prefix' => '<div class="purge-interval-selector clearfix">',
     '#attributes' => array('class' => array('purge-value')),
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_enabled_inactive_users"]' => array('checked' => TRUE),
+      ),
+    ),
   );
-
   $form['not_active_user']['purge_users_user_inactive_period'] = array(
     '#title' => t('Period'),
     '#type' => 'select',
-    '#options' => array(
-      'days' => t('Days'),
-      'month' => t('Months'),
-      'year' => t('Year'),
-    ),
-    '#default_value' => variable_get('purge_users_user_inactive_period', ''),
+    '#options' => $period_options,
+    '#default_value' => $config->get('purge_users_user_inactive_period'),
     '#attributes' => array('class' => array('purge-period')),
-    '#suffix' => '</div>',
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_enabled_inactive_users"]' => array('checked' => TRUE),
+      ),
+    ),
   );
 
-  $form['not_active_user']['purge_users_enabled_inactive_users'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Enabled'),
-    '#default_value' => variable_get('purge_users_enabled_inactive_users', ''),
-  );
+  // Blocked
 
   $form['blocked_user'] = array(
     '#type' => 'fieldset',
-    '#title' => t('Purge users who have been blocked for'),
-    '#collapsible' => FALSE,
-    '#collapsed' => FALSE,
+    '#title' => t('Blocked'),
+  );
+  $form['blocked_user']['purge_users_enabled_blocked_users'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Purge user accounts that have logged in but have been blocked for'),
+    '#default_value' => $config->get('purge_users_enabled_blocked_users'),
   );
   $form['blocked_user']['purge_users_user_blocked_value'] = array(
     '#type' => 'textfield',
     '#title' => t('Interval'),
-    '#default_value' => variable_get('purge_users_user_blocked_value', ''),
+    '#default_value' => $config->get('purge_users_user_blocked_value'),
     '#prefix' => '<div class="purge-interval-selector clearfix">',
     '#attributes' => array('class' => array('purge-value')),
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_enabled_blocked_users"]' => array('checked' => TRUE),
+      ),
+    ),
   );
-
   $form['blocked_user']['purge_users_user_blocked_period'] = array(
     '#title' => t('Period'),
     '#type' => 'select',
-    '#options' => array(
-      'days' => t('Days'),
-      'month' => t('Months'),
-      'year' => t('Year'),
-    ),
-    '#default_value' => variable_get('purge_users_user_blocked_period', ''),
+    '#options' => $period_options,
+    '#default_value' => $config->get('purge_users_user_blocked_period'),
     '#attributes' => array('class' => array('purge-period')),
-    '#suffix' => '</div>',
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_enabled_blocked_users"]' => array('checked' => TRUE),
+      ),
+    ),
   );
 
-  $form['blocked_user']['purge_users_enabled_blocked_users'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Enabled'),
-    '#default_value' => variable_get('purge_users_enabled_blocked_users', ''),
-  );
+  // Roles
 
   $form['purge_users_roles'] = array(
     '#title' => t('Limit purge to the following roles'),
-    '#description' => t('Limit users to a particular role.'),
+    '#description' => t('Select %authenticated_name to allow all roles to be purgeable.', array('%authenticated_name' => $authenticated_name)),
     '#type' => 'checkboxes',
     '#required' => TRUE,
-    '#options' => $roles_array,
-    '#default_value' => variable_get('purge_users_roles', array()),
+    '#options' => $user_roles,
+    '#default_value' => $config->get('purge_users_roles'),
   );
-  module_load_include('inc', 'user', 'user.pages');
   $form['purge_users_cancel_method'] = array(
     '#type' => 'radios',
     '#title' => t('When cancelling these accounts'),
     '#options' => array(
-      'user_cancel_reassign' => t('Delete the account and make its content belong to the %anonymous-name user.', array('%anonymous-name' => variable_get('anonymous', t('Anonymous')))),
+      'user_cancel_reassign' => t('Delete the account and make its content belong to the %anonymous_name user.', array('%anonymous_name' => $anonymous_name)),
       'user_cancel_delete' => t('Delete the account and its content.'),
     ),
-    '#default_value' => variable_get('purge_users_cancel_method', 'user_cancel_reassign'),
+    '#default_value' => $config->get('purge_users_cancel_method'),
   );
 
   $form['purge_users_purge_on_cron'] = array(
     '#type' => 'checkbox',
     '#title' => t('Purge on cron'),
-    '#default_value' => variable_get('purge_users_purge_on_cron', ''),
+    '#description' => t('Purging will happen automatically during cron runs according to the criteria above.'),
+    '#default_value' => $config->get('purge_users_purge_on_cron'),
   );
+
+  // User notification
 
   $form['user_notification'] = array(
     '#type' => 'fieldset',
-    '#title' => t('User Deletion Notification'),
+    '#title' => t('User deletion notification'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
   );
-
-  $form['user_notification']['purge_users_inactive_user_notify_text'] = array(
+  $form['user_notification']['purge_users_send_email_notification'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Send email notification to purged user accounts.'),
+    '#default_value' => $config->get('purge_users_send_email_notification'),
+  );
+  $form['user_notification']['container'] = array(
+    '#type' => 'container',
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_send_email_notification"]' => array('checked' => TRUE),
+      ),
+    ),
+  );
+  $form['user_notification']['container']['purge_users_inactive_user_notify_text'] = array(
     '#type' => 'textarea',
     '#title' => t('Body of user notification e-mail'),
-    '#default_value' => variable_get('purge_users_inactive_user_notify_text', $notification_text),
+    '#default_value' => $config->get('purge_users_inactive_user_notify_text'),
     '#cols' => 70,
     '#rows' => 10,
     '#description' => t('Customize the body of the notification e-mail sent to the user.'),
     '#required' => TRUE,
+    '#states' => array(
+      'visible' => array(
+        ':input[name="purge_users_send_email_notification"]' => array('checked' => TRUE),
+      ),
+    ),
   );
-
-  // Display the list of available placeholders if token module is installed.
-  if (module_exists('token')) {
-    $form['user_notification']['token_help'] = array(
-      '#theme' => 'token_tree',
-      '#token_types' => array('user'),
-      '#show_restricted' => TRUE,
-      '#dialog' => TRUE,
-    );
-  }
-
-  $form['user_notification']['purge_users_send_email_notification'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Enable'),
-    '#description' => t('Check to send email notification to purged users.'),
-    '#default_value' => variable_get('purge_users_send_email_notification', ''),
+  $form['user_notification']['container']['token_help'] = array(
+    '#theme' => 'token_tree',
+    '#token_types' => array('user'),
+    '#show_restricted' => TRUE,
+    '#dialog' => TRUE,
   );
 
   $form['purge_users_now'] = array(
     '#type' => 'submit',
-    '#value' => t('Purge users now'),
+    '#value' => t('Purge user accounts now'),
     '#name' => 'purge_users_now',
-    '#attributes' => array('class' => array('purge-now')),
+    '#attributes' => array('class' => array('purge-now', 'button-danger')),
     '#submit' => array('purge_users_now_form_submit'),
   );
   $form['#submit'][] = 'purge_users_now_form_submit';
@@ -282,7 +309,7 @@ function purge_users_config_form_validate($form, &$form_state) {
     }
     // Make sure one of the fieldset is checked.
     if ($never_enable_loggedin == 0 && $enable_loggedin == 0 && $enable_inactive == 0 && $enable_blocked == 0) {
-      form_set_error('Enable fieldset', t('Please enable one of the Conditions:  Not logged in users, Inactive users or Blocked users.'));
+      form_set_error('Enable fieldset', t('Please enable one of the Conditions:  Never logged in, Not recently logged in, Not activated, or Blocked.'));
     }
     // Check if value field is not empty.
     if ($never_enable_loggedin == 1 && empty($never_login_value)) {
@@ -308,7 +335,7 @@ function purge_users_config_form_validate($form, &$form_state) {
 function purge_users_now_form_submit($form, &$form_state) {
   // Call purge user function to perform operation.
   if ($form_state['triggering_element']['#name'] == 'purge_users_now') {
-    variable_set('purge_users_send_email_notification', $form_state['values']['purge_users_send_email_notification']);
+    config_set('purge_users.settings', 'purge_users_send_email_notification', $form_state['values']['purge_users_send_email_notification']);
     $form_state['storage']['confirm'] = TRUE;
     $form_state['storage']['original_form'] = $form_state['values'];
     $form_state['rebuild'] = TRUE;
@@ -317,7 +344,7 @@ function purge_users_now_form_submit($form, &$form_state) {
   else {
     // Add items to cron queue.
     if ($form_state['values']['purge_users_purge_on_cron'] == 1) {
-      drupal_set_message(t('Purge user operation is scheduled for next cron.'));
+      backdrop_set_message(t('Purge user operation is scheduled for next cron.'));
     }
   }
 }

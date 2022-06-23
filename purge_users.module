@@ -1,8 +1,7 @@
 <?php
-
 /**
  * @file
- * Purge users module file.
+ * Auto Purge Users module file.
  */
 
 /**
@@ -10,40 +9,50 @@
  */
 function purge_users_menu() {
   $items = array();
-  $items['admin/people/purge-rule'] = array(
-    'title' => 'Auto Purge Users',
+  $items['admin/config/people/purge-rule'] = array(
+    'title' => 'Auto purge users',
     'description' => 'Configure purge users.',
-    'page callback' => 'drupal_get_form',
+    'page callback' => 'backdrop_get_form',
     'page arguments' => array('purge_users_config_form'),
     'access arguments' => array('administer users'),
-    'type' => MENU_LOCAL_TASK,
-    'file' => 'purge_users.pages.inc',
-    'weight' => 3,
+    'file' => 'purge_users.admin.inc',
   );
   return $items;
+}
+
+/**
+ * Implements hook_config_info().
+ */
+function purge_users_config_info() {
+  $prefixes['purge_users.settings'] = array(
+    'label' => t('Auto Purge Users settings'),
+    'group' => t('Configuration'),
+  );
+  return $prefixes;
 }
 
 /**
  * Implements hook_cron().
  */
 function purge_users_cron() {
-  if (variable_get('purge_users_purge_on_cron', '') == 1) {
-    // Get form submissions.
-    $user_roles = array_filter(variable_get('purge_users_roles', array()));
-    $status = variable_get('user_status', '');
-    $never_enable_loggedin = variable_get('purge_users_enabled_never_loggedin_users', '');
-    $enable_loggedin = variable_get('purge_users_enabled_loggedin_users', '');
-    $enable_inactive = variable_get('purge_users_enabled_inactive_users', '');
-    $enable_blocked = variable_get('purge_users_enabled_blocked_users', '');
+  $config = config('purge_users.settings');
+  if ($config->get('purge_users_purge_on_cron') == 1) {
+
+    // Get configuration settings.
+    $user_roles = array_filter($config->get('purge_users_roles'));
+    $never_enable_loggedin = $config->get('purge_users_enabled_never_loggedin_users');
+    $enable_loggedin = $config->get('purge_users_enabled_loggedin_users');
+    $enable_inactive = $config->get('purge_users_enabled_inactive_users');
+    $enable_blocked = $config->get('purge_users_enabled_blocked_users');
     $param = array(
-      'never_login_value' => variable_get('purge_users_user_never_lastlogin_value', ''),
-      'never_login_period' => variable_get('purge_users_user_never_lastlogin_period', ''),
-      'login_value' => variable_get('purge_users_user_lastlogin_value', ''),
-      'login_period' => variable_get('purge_users_user_lastlogin_period', ''),
-      'inactive_value' => variable_get('purge_users_user_inactive_value', ''),
-      'inactive_period' => variable_get('purge_users_user_inactive_period', ''),
-      'blocked_value' => variable_get('purge_users_user_blocked_value', ''),
-      'blocked_period' => variable_get('purge_users_user_blocked_period', ''),
+      'never_login_value' => $config->get('purge_users_user_never_lastlogin_value'),
+      'never_login_period' => $config->get('purge_users_user_never_lastlogin_period'),
+      'login_value' => $config->get('purge_users_user_lastlogin_value'),
+      'login_period' => $config->get('purge_users_user_lastlogin_period'),
+      'inactive_value' => $config->get('purge_users_user_inactive_value'),
+      'inactive_period' => $config->get('purge_users_user_inactive_period'),
+      'blocked_value' => $config->get('purge_users_user_blocked_value'),
+      'blocked_period' => $config->get('purge_users_user_blocked_period'),
     );
 
     // Get user ids to purge.
@@ -71,7 +80,7 @@ function purge_users_cron() {
     $result = array_merge($never_loggedin_users, $not_loggedin_users);
     $result = array_unique($result);
     // Add items to queue.
-    $queue = DrupalQueue::get('purge_users');
+    $queue = BackdropQueue::get('purge_users');
     // Process the queue till it is empty.
     if ($queue->numberOfItems() == 0) {
       foreach ($result as $user_id) {
@@ -100,24 +109,21 @@ function purge_users_mail($key, &$message, $params) {
  *   User object.
  */
 function purge_users_send_notification($account) {
-  $message = variable_get('purge_users_inactive_user_notify_text', '');
+  $message = config_get('purge_users.settings', 'purge_users_inactive_user_notify_text');
 
   // Call token replace on the text args into the second parameter.
   $message = token_replace($message, array('user' => $account));
   $params = array(
     'subject' => t('Your account is deleted.'),
-    'body' => check_markup(
-      $message,
-      'plain_text'
-    ),
+    'body' => check_markup($message, 'plain_text'),
   );
-  $from = variable_get('site_mail', '');
+  $from = config_get('system.core', 'site_mail');
   // Send the notification email.
-  drupal_mail('purge_users', 'delete_users', $account->mail, user_preferred_language($account), $params, $from, TRUE);
+  backdrop_mail('purge_users', 'delete_users', $account->mail, user_preferred_language($account), $params, $from, TRUE);
 }
 
 /**
- * Get not logged in user ids.
+ * Get user IDs for user accounts that have never logged in.
  *
  * @param array $param
  *   Form parameters.
@@ -128,37 +134,18 @@ function purge_users_send_notification($account) {
  *   Users ids.
  */
 function purge_users_never_loggedin_user_ids(array $param, array $user_roles = array()) {
-  // Get a time stamp according to the period selected.
-  $logindate = '';
-
+  $query = purge_users_build_query($user_roles);
   if (!empty($param['never_login_value'])) {
-    $logindate = strtotime('-' . $param['never_login_value'] . ' ' . $param['never_login_period']);
-  }
-  // Query through db table to get users ids.
-  $query = db_select('users', 'u');
-  $query->leftjoin('users_roles', 'ur', 'ur.uid = u.uid');
-  $query->fields('u', array('uid'));
-  $query->condition('u.uid', 1, '>');
-  if (!empty($param['never_login_value'])) {
-    $query->condition('u.created', $logindate, '<');
+    $created_date = strtotime('-' . $param['never_login_value'] . ' ' . $param['never_login_period']);
+    $query->condition('u.created', $created_date, '<');
     $query->condition('u.login', 0);
   }
-  if (in_array(DRUPAL_AUTHENTICATED_RID, $user_roles)) {
-    $db_or = db_or();
-    $db_or->condition('ur.rid', NULL);
-    $db_or->condition('ur.rid', $user_roles, 'IN');
-    $query->condition($db_or);
-  }
-  else {
-    $query->condition('ur.rid', $user_roles, 'IN');
-  }
   $uids = $query->execute()->fetchCol();
-
   return $uids;
 }
 
 /**
- * Get not logged in user ids.
+ * Get user IDs for user accounts that have logged in, but not recently.
  *
  * @param array $param
  *   Form parameters.
@@ -169,37 +156,18 @@ function purge_users_never_loggedin_user_ids(array $param, array $user_roles = a
  *   Users ids.
  */
 function purge_users_not_loggedin_user_ids(array $param, array $user_roles = array()) {
-  // Get a time stamp according to the period selected.
-  $logindate = '';
-
+  $query = purge_users_build_query($user_roles);
   if (!empty($param['login_value'])) {
-    $logindate = strtotime('-' . $param['login_value'] . ' ' . $param['login_period']);
-  }
-  // Query through db table to get users ids.
-  $query = db_select('users', 'u');
-  $query->leftjoin('users_roles', 'ur', 'ur.uid = u.uid');
-  $query->fields('u', array('uid'));
-  $query->condition('u.uid', 1, '>');
-  if (!empty($param['login_value'])) {
-    $query->condition('u.login', $logindate, '<');
+    $login_date = strtotime('-' . $param['login_value'] . ' ' . $param['login_period']);
+    $query->condition('u.login', $login_date, '<');
     $query->condition('u.login', 0, '!=');
   }
-  if (in_array(DRUPAL_AUTHENTICATED_RID, $user_roles)) {
-    $db_or = db_or();
-    $db_or->condition('ur.rid', NULL);
-    $db_or->condition('ur.rid', $user_roles, 'IN');
-    $query->condition($db_or);
-  }
-  else {
-    $query->condition('ur.rid', $user_roles, 'IN');
-  }
   $uids = $query->execute()->fetchCol();
-
   return $uids;
 }
 
 /**
- * Get inactive user ids.
+ * Get user IDs for user accounts that have not logged in and are blocked.
  *
  * @param array $param
  *   Form parameters.
@@ -210,36 +178,19 @@ function purge_users_not_loggedin_user_ids(array $param, array $user_roles = arr
  *   Inactive user ids.
  */
 function purge_users_inactive_user_ids(array $param, array $user_roles = array()) {
-  // Get a time stamp according to the period selected.
-  $inactivedate = '';
+  $query = purge_users_build_query($user_roles);
   if (!empty($param['inactive_value'])) {
-    $inactivedate = strtotime('-' . $param['inactive_value'] . ' ' . $param['inactive_period']);
-  }
-  // Query through db table to get users ids.
-  $query = db_select('users', 'u');
-  $query->leftjoin('users_roles', 'ur', 'ur.uid = u.uid');
-  $query->fields('u', array('uid'));
-  $query->condition('u.uid', 1, '>');
-  if (!empty($param['inactive_value'])) {
-    $query->condition('u.created', $inactivedate, '<');
+    $inactive_date = strtotime('-' . $param['inactive_value'] . ' ' . $param['inactive_period']);
+    $query->condition('u.created', $inactive_date, '<');
     $query->condition('u.login', 0);
     $query->condition('u.status', 0);
-  }
-  if (in_array(DRUPAL_AUTHENTICATED_RID, $user_roles)) {
-    $db_or = db_or();
-    $db_or->condition('ur.rid', NULL);
-    $db_or->condition('ur.rid', $user_roles, 'IN');
-    $query->condition($db_or);
-  }
-  else {
-    $query->condition('ur.rid', $user_roles, 'IN');
   }
   $uids = $query->execute()->fetchCol();
   return $uids;
 }
 
 /**
- * Get blocked user ids.
+ * Get user IDs for user accounts that have logged in but are blocked.
  *
  * @param array $param
  *   Form parameters.
@@ -250,33 +201,30 @@ function purge_users_inactive_user_ids(array $param, array $user_roles = array()
  *   Blocked user ids.
  */
 function purge_users_blocked_user_ids(array $param, array $user_roles = array()) {
-  // Get a time stamp according to the period selected.
-  $blockdate = '';
+  $query = purge_users_build_query($user_roles);
   if (!empty($param['blocked_value'])) {
-    $blockdate = strtotime('-' . $param['blocked_value'] . ' ' . $param['blocked_period']);
+    $block_date = strtotime('-' . $param['blocked_value'] . ' ' . $param['blocked_period']);
+    $query->condition('u.created', $block_date, '<');
+    $query->condition('u.login', $block_date, '<');
+    $query->condition('u.login', 0, '!=');
+    $query->condition('u.status', 0);
   }
-  // Query through db table to get users ids.
+  $uids = $query->execute()->fetchCol();
+  return $uids;
+}
+
+/**
+ * Build the basic query to find users, possibly limited by role.
+ */
+function purge_users_build_query(array $user_roles) {
   $query = db_select('users', 'u');
   $query->leftjoin('users_roles', 'ur', 'ur.uid = u.uid');
   $query->fields('u', array('uid'));
   $query->condition('u.uid', 1, '>');
-  if (!empty($param['blocked_period'])) {
-    $query->condition('u.created', $blockdate, '<');
-    $query->condition('u.login', $blockdate, '<');
-    $query->condition('u.login', 0, '!=');
-    $query->condition('u.status', 0);
+  if (!in_array(BACKDROP_AUTHENTICATED_ROLE, $user_roles)) {
+    $query->condition('ur.role', $user_roles, 'IN');
   }
-  if (in_array(DRUPAL_AUTHENTICATED_RID, $user_roles)) {
-    $db_or = db_or();
-    $db_or->condition('ur.rid', NULL);
-    $db_or->condition('ur.rid', $user_roles, 'IN');
-    $query->condition($db_or);
-  }
-  else {
-    $query->condition('ur.rid', $user_roles, 'IN');
-  }
-  $uids = $query->execute()->fetchCol();
-  return $uids;
+  return $query;
 }
 
 /**
@@ -297,26 +245,27 @@ function purge_users_cron_queue_info() {
  *   User account.
  */
 function purge_users_worker($data) {
- $account = user_load($data);
- $method = variable_get('purge_users_cancel_method', 'user_cancel_reassign');
- // Modules use hook_user_delete() to respond to deletion.
- if ($method == 'user_cancel_delete') {
-   // Do heavy lifting here. Delete users and send an notification email.
-   if (variable_get('purge_users_send_email_notification', '') == 1) {
-     purge_users_send_notification($account);
-   }
-   // Perform user deletion operation.
-   user_delete($account->uid);
- }
- else {
-   user_cancel(array(), $account->uid, 'user_cancel_reassign');
-   // user_cancel() initiates a batch process. Run it manually.
-   $batch =& batch_get();
-   $batch['progressive'] = FALSE;
-   batch_process();
- }
- // Log an entry to watchdog.
- watchdog('Purge users', 'User %user purged.', array('%user' => $account->name), WATCHDOG_NOTICE);
+  $config = config('purge_users.settings');
+  $account = user_load($data);
+  $method = $config->get('purge_users_cancel_method');
+  // Modules use hook_user_delete() to respond to deletion.
+  if ($method == 'user_cancel_delete') {
+    // Do heavy lifting here. Delete users and send an notification email.
+    if ($config->get('purge_users_send_email_notification') == 1) {
+      purge_users_send_notification($account);
+    }
+    // Perform user deletion operation.
+    user_delete($account->uid);
+  }
+  else {
+    user_cancel(array(), $account->uid, 'user_cancel_reassign');
+    // user_cancel() initiates a batch process. Run it manually.
+    $batch = &batch_get();
+    $batch['progressive'] = FALSE;
+    batch_process();
+  }
+  // Log an entry to watchdog.
+  watchdog('Purge users', 'User %user purged.', array('%user' => $account->name), WATCHDOG_NOTICE);
 }
 
 /**
@@ -347,9 +296,9 @@ function purge_users_multiple_cancel_confirm($form, &$form_state, $uids, $cancel
   );
   $form['#submit'][] = 'purge_users_multiple_cancel_confirm_submit';
   return confirm_form($form,
-    t('Are you sure you want to cancel these user accounts?'),
-    'admin/people/purge-rule', t('This action cannot be undone.'),
-    t('Cancel accounts'), t('Cancel'));
+    t('Are you sure you want to purge these user accounts?'),
+    'admin/config/people/purge-rule', t('This action cannot be undone.'),
+    t('Purge accounts'), t('Cancel'));
 }
 
 /**
@@ -364,10 +313,10 @@ function purge_users_multiple_cancel_confirm_submit($form, &$form_state) {
     $batch = array(
       'operations' => array(),
       'finished' => 'purge_users_batch_completed',
-      'title' => t('Delete users'),
-      'init_message' => t('Delete users operation is starting...'),
+      'title' => t('Delete user accounts'),
+      'init_message' => t('Delete user accounts operation is starting...'),
       'progress_message' => t('Processed @current out of @total.'),
-      'error_message' => t('Delete users operation has encountered an error.'),
+      'error_message' => t('Delete user accounts operation has encountered an error.'),
     );
     foreach ($form_state['values']['accounts'] as $uid => $value) {
       // Prevent programmatic form submissions from cancelling user 1.
@@ -384,13 +333,13 @@ function purge_users_multiple_cancel_confirm_submit($form, &$form_state) {
     }
     // Batch set.
     batch_set($batch);
-    batch_process('admin/people/purge-rule');
+    batch_process('admin/config/people/purge-rule');
   }
-  $form_state['redirect'] = 'admin/people/purge-rule';
+  $form_state['redirect'] = 'admin/config/people/purge-rule';
 }
 
 /**
- * The batch processor.
+ * The batch processor for purging multiple users.
  */
 function purge_users_batch_process($account, $method, &$context) {
   if (!isset($context['results']['purged'])) {
@@ -403,13 +352,14 @@ function purge_users_batch_process($account, $method, &$context) {
     module_invoke_all('user_cancel', array(), $account, $method);
   }
   // Log an entry to watchdog.
-  watchdog('Purge users', 'User %user purged.', array('%user' => $account->name), WATCHDOG_NOTICE);
+  watchdog('Purge users', 'User account %user purged.', array('%user' => $account->name), WATCHDOG_NOTICE);
   // Do heavy lifting here. Delete users and send an notification email.
-  if (variable_get('purge_users_send_email_notification', '') == 1) {
+  if (config_get('purge_users.settings', 'purge_users_send_email_notification') == 1) {
     purge_users_send_notification($account);
   }
   // Perform user deletion operation.
-  user_delete($account->uid);
+// TEMPORARY
+//  user_delete($account->uid);
 
   // Display a progress message...
   $context['message'] = "Now processing $account->name ...";
@@ -423,9 +373,9 @@ function purge_users_batch_process($account, $method, &$context) {
 function purge_users_batch_completed($success, $results, $operations) {
   if ($success) {
     $purged = isset($results['purged']) ? $results['purged'] : 0;
-    $message = t('@count Users has been purged.', array('@count' => $purged));
+    $message = format_plural($purged, '@count user account has been purged.', '@count user accounts have been purged.', array('@count' => $purged));
 
-    drupal_set_message($message);
+    backdrop_set_message($message);
   }
   else {
     $error_operation = reset($operations);
@@ -433,36 +383,36 @@ function purge_users_batch_completed($success, $results, $operations) {
       '%error_operation' => $error_operation[0],
       '@arguments' => print_r($error_operation[1], TRUE),
     ));
-    drupal_set_message($message, 'error');
+    backdrop_set_message($message, 'error');
   }
 }
 
 /**
- * Get users ids to cancel.
+ * Get user ids to cancel.
  *
- * @param mixed $data
+ * @param mixed $form_state
  *   Purge users setting form data.
  *
  * @return array
- *   Users ids to be processed.
+ *   User ids to be processed.
  */
-function purge_users_get_users_list($data) {
+function purge_users_get_users_list($form_state) {
   // Collect configuration values.
-  $enable_blocked = $data['values']['purge_users_enabled_blocked_users'];
-  $user_roles = array_filter($data['values']['purge_users_roles']);
-  $enable_loggedin = $data['values']['purge_users_enabled_loggedin_users'];
-  $enable_inactive = $data['values']['purge_users_enabled_inactive_users'];
-  $never_enable_loggedin = $data['values']['purge_users_enabled_never_loggedin_users'];
+  $enable_blocked = $form_state['values']['purge_users_enabled_blocked_users'];
+  $user_roles = array_filter($form_state['values']['purge_users_roles']);
+  $enable_loggedin = $form_state['values']['purge_users_enabled_loggedin_users'];
+  $enable_inactive = $form_state['values']['purge_users_enabled_inactive_users'];
+  $never_enable_loggedin = $form_state['values']['purge_users_enabled_never_loggedin_users'];
 
   $param = array(
-    'never_login_value' => $data['values']['purge_users_user_never_lastlogin_value'],
-    'never_login_period' => $data['values']['purge_users_user_never_lastlogin_period'],
-    'login_value' => $data['values']['purge_users_user_lastlogin_value'],
-    'login_period' => $data['values']['purge_users_user_lastlogin_period'],
-    'inactive_value' => $data['values']['purge_users_user_inactive_value'],
-    'inactive_period' => $data['values']['purge_users_user_inactive_period'],
-    'blocked_value' => $data['values']['purge_users_user_blocked_value'],
-    'blocked_period' => $data['values']['purge_users_user_blocked_period'],
+    'never_login_value' => $form_state['values']['purge_users_user_never_lastlogin_value'],
+    'never_login_period' => $form_state['values']['purge_users_user_never_lastlogin_period'],
+    'login_value' => $form_state['values']['purge_users_user_lastlogin_value'],
+    'login_period' => $form_state['values']['purge_users_user_lastlogin_period'],
+    'inactive_value' => $form_state['values']['purge_users_user_inactive_value'],
+    'inactive_period' => $form_state['values']['purge_users_user_inactive_period'],
+    'blocked_value' => $form_state['values']['purge_users_user_blocked_value'],
+    'blocked_period' => $form_state['values']['purge_users_user_blocked_period'],
   );
 
   // Get users ids to process.
